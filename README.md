@@ -1,8 +1,7 @@
-# freesk8_mobile
+# Power Traverse Mobile
 
-A Flutter project to enhance connectivity to your ESK8 or PEV.
-
-This project also serves as a companion application to the [FreeSK8 Robogotchi](https://derelictrobot.com/collections/production/products/freesk8-robogotchi).
+Flutter app for configuring and monitoring VESC based controllers.
+Supports Lil FOCer, Cheap FOCer, Flipsky and MakerBase hardware.
 
 ## Getting Started
 
