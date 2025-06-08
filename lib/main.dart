@@ -14,6 +14,7 @@ import 'components/crc16.dart';
 import 'components/deviceInformation.dart';
 import 'hardwareSupport/dieBieMSHelper.dart';
 import 'globalUtilities.dart';
+import 'models/esc_model.dart';
 
 // UI Pages
 import 'mainViews/connectionStatus.dart';
@@ -166,6 +167,7 @@ class MyHomeState extends State<MyHome> with SingleTickerProviderStateMixin {
   static BluetoothDevice _connectedDevice;
   static bool isConnectedDeviceKnown = false;
   static bool isESCResponding = false;
+  static ESCModel currentESCModel = ESCModel.unknown;
   static List<BluetoothService> _services;
   static StreamSubscription<BluetoothDeviceState> _connectedDeviceStreamSubscription;
   final GeolocatorPlatform _geolocatorPlatform = GeolocatorPlatform.instance;
@@ -194,6 +196,8 @@ class MyHomeState extends State<MyHome> with SingleTickerProviderStateMixin {
     escHelper = new ESCHelper();
     dieBieMSHelper = new DieBieMSHelper();
 
+    supportedServices.addAll([uartServiceUUID, hm10ServiceUUID]);
+
     FileManager.createLogDirectory();
 
     if (_connectedDevice != null){
@@ -221,7 +225,10 @@ class MyHomeState extends State<MyHome> with SingleTickerProviderStateMixin {
     widget.flutterBlue.scanResults.listen((List<ScanResult> results) async {
       setState(() {
         widget.bleScanResults.clear();
-        widget.bleScanResults.addAll(results);
+        widget.bleScanResults.addAll(results.where((result) {
+          final adv = result.advertisementData.serviceUuids;
+          return supportedServices.any((uuid) => adv.contains(uuid.toString()));
+        }));
       });
     });
     widget.flutterBlue.setLogLevel(LogLevel.warning);
@@ -418,7 +425,7 @@ class MyHomeState extends State<MyHome> with SingleTickerProviderStateMixin {
       widget.bleScanResults.clear(); // Clear potential previous results
       // Check if BLE is on before scanning
       if (await _isBLEOn(true)) {
-        widget.flutterBlue.startScan(withServices: new List<Guid>.from([uartServiceUUID])).catchError((onError){
+        widget.flutterBlue.startScan().catchError((onError){
           // Catch errors from starting scan
           genericAlert(context, "BLE Scan Error", Text("Unable to start scanning: ${onError.toString()}"), "OK");
           globalLogger.e("flutter_blue.startScan threw: ${onError.toString()}");
@@ -800,8 +807,11 @@ class MyHomeState extends State<MyHome> with SingleTickerProviderStateMixin {
   static DateTime dtLastLogged = DateTime.now();
 
   final Guid uartServiceUUID = new Guid("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+  final Guid hm10ServiceUUID = new Guid("0000FFE0-0000-1000-8000-00805F9B34FB");
   final Guid txCharacteristicUUID = new Guid("6e400002-b5a3-f393-e0a9-e50e24dcca9e");
+  final Guid hm10CharacteristicUUID = new Guid("0000FFE1-0000-1000-8000-00805F9B34FB");
   final Guid rxCharacteristicUUID = new Guid("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+  final List<Guid> supportedServices = [];
   final Guid txLoggerCharacteristicUUID = new Guid("6e400004-b5a3-f393-e0a9-e50e24dcca9e");
   final Guid rxLoggerCharacteristicUUID = new Guid("6e400005-b5a3-f393-e0a9-e50e24dcca9e");
 
@@ -985,16 +995,16 @@ class MyHomeState extends State<MyHome> with SingleTickerProviderStateMixin {
 
     for (BluetoothService service in _services) {
       globalLogger.d("prepareConnectedDevice: Discovered service: ${service.uuid}");
-      if (service.uuid == uartServiceUUID) {
+      if (service.uuid == uartServiceUUID || service.uuid == hm10ServiceUUID) {
         foundService = true;
         theServiceWeWant = service;
         for (BluetoothCharacteristic characteristic in service.characteristics) {
           globalLogger.d("prepareConnectedDevice: Discovered characteristic: ${characteristic.uuid}");
-          if (characteristic.uuid == txCharacteristicUUID){
+          if (characteristic.uuid == txCharacteristicUUID || characteristic.uuid == hm10CharacteristicUUID){
             theTXCharacteristic = characteristic;
             foundTX = true;
           }
-          else if (characteristic.uuid == rxCharacteristicUUID){
+          else if (characteristic.uuid == rxCharacteristicUUID || characteristic.uuid == hm10CharacteristicUUID){
             theRXCharacteristic = characteristic;
             foundRX = true;
           }
@@ -1599,6 +1609,19 @@ class MyHomeState extends State<MyHome> with SingleTickerProviderStateMixin {
           var minor = firmwarePacket.fw_version_minor;
           var hardName = firmwarePacket.hardware_name;
           globalLogger.d("Firmware packet: major $major, minor $minor, hardware $hardName");
+
+          if (hardName.toLowerCase().contains('lilfocer')) {
+            currentESCModel = ESCModel.lilFocer;
+          } else if (hardName.toLowerCase().contains('cheapfocer')) {
+            currentESCModel = ESCModel.cheapFocer;
+          } else if (hardName.toLowerCase().contains('flipsky')) {
+            currentESCModel = ESCModel.flipsky;
+          } else if (hardName.toLowerCase().contains('makerbase')) {
+            currentESCModel = ESCModel.makerBase;
+          } else {
+            currentESCModel = ESCModel.unknown;
+          }
+          globalLogger.i('Detected ESC model: $currentESCModel');
 
           setState(() {
             isESCResponding = true;
